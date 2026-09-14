@@ -28,3 +28,11 @@ A Django user/session is the separate browser/admin boundary. No runtime credent
 
 Future versions must add fields/endpoints or negotiate capabilities; do not repurpose v1 fields. WebSocket transport may later carry the same envelopes, while v1 uses outbound runtime polling only.
 The Rust test suite consumes the deterministic fixture copied to [`tests/fixtures/runtime-v1.json`](../../tests/fixtures/runtime-v1.json). Keep this copy synchronized with the control-plane fixture at `agent-loom-control-plane/docs/protocol/fixtures/runtime-v1.json`; no network or running service is required for contract validation.
+
+## Hermes runner instruction
+
+The runtime currently advertises the `hermes.run` capability. A command for that capability has exactly this instruction shape:
+
+    {"kind":"hermes.run","prompt":"Produce the requested structured response"}
+
+The runtime rejects unknown fields, unsupported kinds, empty prompts, and prompts larger than 128 KiB. It executes the configured local binary as hermes run --prompt <prompt>; the command cannot choose an executable, working directory, environment, or output path. Each accepted command queues ack, progress with {"status":"running"}, and then exactly one result or error event. Output is bounded and common bearer, token, secret, password, and API-key formats are redacted before being included in results or errors.

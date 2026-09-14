@@ -1,7 +1,10 @@
 use crate::{
     client::ControlPlaneClient,
     config::Config,
-    protocol::{CommandRef, Envelope, ErrorBody, ErrorEvent, Heartbeat, Registration},
+    hermes::{HermesError, HermesRunner},
+    protocol::{
+        CommandRef, Envelope, ErrorBody, ErrorEvent, Heartbeat, Progress, Registration, ResultEvent,
+    },
     state::State,
 };
 use anyhow::{Context, Result};
@@ -10,7 +13,7 @@ use std::sync::Arc;
 use tokio::time::{MissedTickBehavior, interval};
 use tracing::{info, warn};
 
-pub const CAPABILITIES: &[&str] = &[];
+pub const CAPABILITIES: &[&str] = &[crate::hermes::CAPABILITY];
 pub async fn run(config: Config, state: Arc<State>) -> Result<()> {
     let identity = state.identity()?;
     let client = ControlPlaneClient::new(
@@ -55,11 +58,16 @@ pub async fn run(config: Config, state: Arc<State>) -> Result<()> {
     polling.set_missed_tick_behavior(MissedTickBehavior::Delay);
     let mut heartbeats = interval(config.heartbeat_interval);
     heartbeats.set_missed_tick_behavior(MissedTickBehavior::Delay);
+    let runner = HermesRunner::new(
+        config.hermes_binary,
+        config.hermes_timeout,
+        config.hermes_output_limit,
+    );
     loop {
-        tokio::select! { _=polling.tick()=> { if let Err(error)=cycle(&client,&state).await { warn!(%error,"runtime cycle failed; will reconnect"); state.set_meta("last_error",&error.to_string())?; } }, _=heartbeats.tick()=> { let heartbeat=Envelope::new(Heartbeat{capabilities:CAPABILITIES.iter().map(ToString::to_string).collect()}); if let Err(error)=client.heartbeat(&heartbeat).await {warn!(%error,"heartbeat failed");state.set_meta("last_error",&error.to_string())?;} }, _=tokio::signal::ctrl_c()=> {info!("shutdown signal received");return Ok(());} }
+        tokio::select! { _=polling.tick()=> { if let Err(error)=cycle(&client,&state,&runner).await { warn!(%error,"runtime cycle failed; will reconnect"); state.set_meta("last_error",&error.to_string())?; } }, _=heartbeats.tick()=> { let heartbeat=Envelope::new(Heartbeat{capabilities:CAPABILITIES.iter().map(ToString::to_string).collect()}); if let Err(error)=client.heartbeat(&heartbeat).await {warn!(%error,"heartbeat failed");state.set_meta("last_error",&error.to_string())?;} }, _=tokio::signal::ctrl_c()=> {info!("shutdown signal received");return Ok(());} }
     }
 }
-async fn cycle(client: &ControlPlaneClient, state: &State) -> Result<()> {
+async fn cycle(client: &ControlPlaneClient, state: &State, runner: &HermesRunner) -> Result<()> {
     state.prune_detailed_evidence(chrono::Utc::now())?;
     flush(client, state).await?;
     let commands = client.commands().await?;
@@ -71,20 +79,44 @@ async fn cycle(client: &ControlPlaneClient, state: &State) -> Result<()> {
             command_id: command.body.command_id,
         });
         state.queue_event("ack", &serde_json::to_value(ack)?)?;
-        let error = Envelope::new(ErrorEvent {
+        let progress = Envelope::new(Progress {
             command_id: command.body.command_id,
-            error: ErrorBody {
-                code: "unsupported_instruction".to_owned(),
-                details: [(
-                    "message".to_owned(),
-                    json!("This generic runtime has no automation executors installed."),
-                )]
-                .into(),
-            },
+            progress: json!({"status": "running"}),
         });
-        state.queue_event("error", &serde_json::to_value(error)?)?;
+        state.queue_event("progress", &serde_json::to_value(progress)?)?;
+        match runner.run(command.body.instruction).await {
+            Ok(result) => {
+                let event = Envelope::new(ResultEvent {
+                    command_id: command.body.command_id,
+                    result: serde_json::to_value(result)?,
+                });
+                state.queue_event("result", &serde_json::to_value(event)?)?;
+            }
+            Err(error) => {
+                let event = Envelope::new(ErrorEvent {
+                    command_id: command.body.command_id,
+                    error: ErrorBody {
+                        code: error_code(&error),
+                        details: [("message".to_owned(), json!(error.to_string()))].into(),
+                    },
+                });
+                state.queue_event("error", &serde_json::to_value(event)?)?;
+            }
+        }
     }
     flush(client, state).await
+}
+
+fn error_code(error: &HermesError) -> String {
+    match error {
+        HermesError::InvalidInstruction(_) => "invalid_instruction",
+        HermesError::UnsupportedInstruction(_) => "unsupported_instruction",
+        HermesError::Timeout(_) => "execution_timeout",
+        HermesError::NonZero { .. } => "execution_failed",
+        HermesError::Start(_) => "executor_unavailable",
+        HermesError::Io(_) => "execution_io_error",
+    }
+    .to_owned()
 }
 async fn flush(client: &ControlPlaneClient, state: &State) -> Result<()> {
     for event in state.pending_events()? {

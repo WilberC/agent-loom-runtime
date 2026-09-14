@@ -11,6 +11,9 @@ pub struct Config {
     pub poll_interval: Duration,
     pub heartbeat_interval: Duration,
     pub request_timeout: Duration,
+    pub hermes_binary: PathBuf,
+    pub hermes_timeout: Duration,
+    pub hermes_output_limit: usize,
 }
 impl Config {
     pub fn from_env() -> Result<Self> {
@@ -32,6 +35,15 @@ impl Config {
             }
             Ok(Duration::from_secs(value))
         };
+        let output_limit = env::var("AGENT_LOOM_HERMES_OUTPUT_LIMIT_BYTES")
+            .ok()
+            .map(|v| v.parse::<usize>())
+            .transpose()
+            .context("invalid AGENT_LOOM_HERMES_OUTPUT_LIMIT_BYTES")?
+            .unwrap_or(64 * 1024);
+        if output_limit == 0 {
+            bail!("AGENT_LOOM_HERMES_OUTPUT_LIMIT_BYTES must be positive");
+        }
         Ok(Self {
             control_plane_url,
             runtime_name: env::var("AGENT_LOOM_RUNTIME_NAME")
@@ -46,6 +58,10 @@ impl Config {
             poll_interval: positive("AGENT_LOOM_POLL_INTERVAL_SECS", 10)?,
             heartbeat_interval: positive("AGENT_LOOM_HEARTBEAT_INTERVAL_SECS", 30)?,
             request_timeout: positive("AGENT_LOOM_REQUEST_TIMEOUT_SECS", 30)?,
+            hermes_binary: env::var_os("AGENT_LOOM_HERMES_BINARY")
+                .map_or_else(|| PathBuf::from("hermes"), PathBuf::from),
+            hermes_timeout: positive("AGENT_LOOM_HERMES_TIMEOUT_SECS", 180)?,
+            hermes_output_limit: output_limit,
         })
     }
     pub fn runtime_secret(&self) -> Result<Option<String>> {

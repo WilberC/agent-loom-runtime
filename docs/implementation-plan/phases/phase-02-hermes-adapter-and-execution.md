@@ -2,7 +2,7 @@
 
 ## Phase metadata
 
-- Status: pending automation implementation
+- Status: in progress — core Hermes runner implemented; operational hardening and automation fixtures remain pending
 - Depends on: Phase 01
 - Target: runner contract, Hermes command capability, executor, and first plan fixtures
 
@@ -12,14 +12,14 @@ The Rust runtime executes declarative plans produced by the control plane throug
 
 ## Tasks
 
-- [ ] P02-T01 Define the Rust runner/capability interface and implement Hermes CLI discovery, version/capability checks, timeout, signal handling, and process-group cleanup.
-- [ ] P02-T02 Implement only the approved runner primitives required by control-plane plans; keep workflow orchestration and business rules out of this repository.
+- [x] P02-T01 Define the typed Rust runner interface and implement configured-binary invocation, timeout, bounded output, failure handling, and basic process termination.
+- [x] P02-T02 Implement the first approved hermes.run primitive; keep workflow orchestration and business rules out of this repository.
 - [ ] P02-T03 Add generic execution fixtures for automation applications, preserving invocation, result, timeout, and duplicate-side-effect behavior without analyzing or porting individual automation logic here.
 
 ## Validation milestones
 
-- `V02-01`: process tests cover success, non-zero exit, timeout, cancellation, SIGTERM/SIGKILL escalation, and redaction.
-- `V02-02`: adapter contract tests use fake Hermes/TickTick/provider clients and verify allowlisted paths/commands.
+- `V02-01`: local process tests cover success, non-zero exit, timeout, bounded output, and redaction; cancellation, process groups, and escalation remain pending.
+- `V02-02`: local fake Hermes tests verify the configured binary boundary; provider clients and deployment validation remain pending.
 - `V02-03`: legacy gateway tests are ported and pass without using legacy filesystem/database paths.
 
 ## Parallelization
@@ -32,6 +32,6 @@ The Rust runtime executes declarative plans produced by the control plane throug
 
 ## Completion criteria
 
-- [ ] Hermes is the only supported agent but all execution uses the runner capability boundary.
-- [ ] No remote payload can choose an arbitrary executable, cwd, or output path.
+- [x] Hermes is the only supported agent and execution uses the runner capability boundary.
+- [x] No remote payload can choose an arbitrary executable, cwd, or output path.
 - [ ] Daily summary and standup behavior has parity evidence.
