@@ -2,7 +2,7 @@
 
 ## Phase metadata
 
-- Status: complete for generic runtime foundation
+- Status: complete for generic local runtime foundation
 - Depends on: Phase 01, Phase 02
 - Target: worker lifecycle, local state, logs, telemetry
 
@@ -34,4 +34,4 @@ The runtime can process work continuously and safely through reconnects, reports
 
 - [x] Runtime recovers from control-plane and process failures without duplicate successful side effects.
 - [x] Operators can diagnose a failed run from the control plane and bounded runtime evidence.
-- [x] Resource limits and cleanup are verified on the target LXC.
+- [x] Local resource cleanup is covered by deterministic SQLite tests; target-LXC resource-limit verification remains deferred to Phase 04 deployment work.

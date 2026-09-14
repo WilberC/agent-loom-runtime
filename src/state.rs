@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use chrono::Utc;
+use chrono::{DateTime, Duration, Utc};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::Value;
 use std::{path::Path, sync::Mutex};
@@ -26,6 +26,9 @@ pub struct Status {
     pub known_commands: i64,
     pub last_error: Option<String>,
 }
+
+pub const MAX_DETAILED_EVIDENCE_RETENTION_DAYS: i64 = 4;
+
 impl State {
     pub fn open(path: &Path) -> Result<Self> {
         if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
@@ -35,7 +38,7 @@ impl State {
             .with_context(|| format!("open state database {}", path.display()))?;
         connection.pragma_update(None, "journal_mode", "WAL")?;
         connection.pragma_update(None, "foreign_keys", "ON")?;
-        connection.execute_batch("CREATE TABLE IF NOT EXISTS identity (singleton INTEGER PRIMARY KEY CHECK(singleton=1), runtime_id TEXT NOT NULL, runtime_secret TEXT NOT NULL); CREATE TABLE IF NOT EXISTS commands (command_id TEXT PRIMARY KEY, payload TEXT NOT NULL, received_at TEXT NOT NULL); CREATE TABLE IF NOT EXISTS outgoing_events (id INTEGER PRIMARY KEY, kind TEXT NOT NULL, payload TEXT NOT NULL, created_at TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, last_error TEXT); CREATE TABLE IF NOT EXISTS runtime_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);")?;
+        connection.execute_batch("CREATE TABLE IF NOT EXISTS identity (singleton INTEGER PRIMARY KEY CHECK(singleton=1), runtime_id TEXT NOT NULL, runtime_secret TEXT NOT NULL); CREATE TABLE IF NOT EXISTS commands (command_id TEXT PRIMARY KEY, payload TEXT NOT NULL, received_at TEXT NOT NULL); CREATE TABLE IF NOT EXISTS outgoing_events (id INTEGER PRIMARY KEY, kind TEXT NOT NULL, payload TEXT NOT NULL, created_at TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, last_error TEXT); CREATE TABLE IF NOT EXISTS event_history (id INTEGER PRIMARY KEY, kind TEXT NOT NULL, payload TEXT NOT NULL, created_at TEXT NOT NULL, delivered_at TEXT NOT NULL); CREATE TABLE IF NOT EXISTS runtime_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);")?;
         Ok(Self {
             connection: Mutex::new(connection),
         })
@@ -100,11 +103,30 @@ impl State {
             .map_err(Into::into)
     }
     pub fn delivered(&self, id: i64) -> Result<()> {
-        self.connection
-            .lock()
-            .expect("state mutex poisoned")
-            .execute("DELETE FROM outgoing_events WHERE id=?1", params![id])?;
+        let mut connection = self.connection.lock().expect("state mutex poisoned");
+        let transaction = connection.transaction()?;
+        transaction.execute(
+            "INSERT INTO event_history(id,kind,payload,created_at,delivered_at) SELECT id,kind,payload,created_at,?2 FROM outgoing_events WHERE id=?1",
+            params![id, Utc::now().to_rfc3339()],
+        )?;
+        transaction.execute("DELETE FROM outgoing_events WHERE id=?1", params![id])?;
+        transaction.commit()?;
         Ok(())
+    }
+
+    /// Removes delivered event evidence older than the hard limit.
+    ///
+    /// Identity, command deduplication records, and runtime metadata are intentionally kept.
+    pub fn prune_detailed_evidence(&self, now: DateTime<Utc>) -> Result<usize> {
+        let cutoff = now - Duration::days(MAX_DETAILED_EVIDENCE_RETENTION_DAYS);
+        let mut connection = self.connection.lock().expect("state mutex poisoned");
+        let transaction = connection.transaction()?;
+        let deleted = transaction.execute(
+            "DELETE FROM event_history WHERE delivered_at < ?1",
+            params![cutoff.to_rfc3339()],
+        )?;
+        transaction.commit()?;
+        Ok(deleted)
     }
     pub fn failed_delivery(&self, id: i64, error: &str) -> Result<()> {
         self.connection

@@ -27,3 +27,4 @@ A Django user/session is the separate browser/admin boundary. No runtime credent
 ## Compatibility
 
 Future versions must add fields/endpoints or negotiate capabilities; do not repurpose v1 fields. WebSocket transport may later carry the same envelopes, while v1 uses outbound runtime polling only.
+The Rust test suite consumes the deterministic fixture copied to [`tests/fixtures/runtime-v1.json`](../../tests/fixtures/runtime-v1.json). Keep this copy synchronized with the control-plane fixture at `agent-loom-control-plane/docs/protocol/fixtures/runtime-v1.json`; no network or running service is required for contract validation.

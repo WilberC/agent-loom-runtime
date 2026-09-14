@@ -1,6 +1,6 @@
 # Agent Loom Runtime
 
-A generic Rust runtime that initiates authenticated HTTP connections to an Agent Loom control plane. It has no automation, Gmail, shell, filesystem, or provider executor: v1 commands are durably acknowledged and then reported as `unsupported_instruction`. This is intentional—execution capabilities are an explicit future allowlist.
+A generic Rust runtime that initiates authenticated HTTP connections to an Agent Loom control plane. It has no automation, Gmail, shell, filesystem, or provider executor: v1 commands are durably acknowledged and then reported as `unsupported_instruction`. This is intentional—execution capabilities are an explicit future allowlist. Local delivered-event evidence is retained for at most four days while pending events are never pruned.
 
 ## Commands
 

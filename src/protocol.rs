@@ -84,7 +84,6 @@ pub struct ErrorEvent {
     pub error: ErrorBody,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct ErrorBody {
     pub code: String,
     #[serde(flatten)]

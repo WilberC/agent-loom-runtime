@@ -60,6 +60,7 @@ pub async fn run(config: Config, state: Arc<State>) -> Result<()> {
     }
 }
 async fn cycle(client: &ControlPlaneClient, state: &State) -> Result<()> {
+    state.prune_detailed_evidence(chrono::Utc::now())?;
     flush(client, state).await?;
     let commands = client.commands().await?;
     for command in commands.commands {

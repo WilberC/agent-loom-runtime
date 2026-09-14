@@ -1,7 +1,10 @@
 use agent_loom_runtime::{
     protocol::{Command, Envelope, VERSION},
-    state::State,
+    state::{MAX_DETAILED_EVIDENCE_RETENTION_DAYS, State},
 };
+use chrono::{Duration, Utc};
+use serde::Deserialize;
+use serde_json::Value;
 use serde_json::json;
 use tempfile::tempdir;
 use uuid::Uuid;
@@ -22,6 +25,61 @@ fn envelope_rejects_unknown_fields_and_wrong_version() {
     };
     assert!(bad.validate_version().is_err());
     assert_eq!(VERSION, "v1");
+}
+
+#[derive(Deserialize)]
+struct FixtureCase {
+    schema: String,
+    payload: Value,
+}
+
+#[derive(Deserialize)]
+struct ProtocolFixtures {
+    valid: Vec<FixtureCase>,
+    invalid: Vec<FixtureCase>,
+}
+
+#[test]
+fn shared_protocol_fixtures_are_consumed_by_runtime_types() {
+    let fixtures: ProtocolFixtures = serde_json::from_str(include_str!("fixtures/runtime-v1.json"))
+        .expect("shared protocol fixture must be valid JSON");
+
+    for case in fixtures.valid {
+        assert!(
+            parse_fixture(&case.schema, case.payload.clone()).is_ok(),
+            "{}: {:?}",
+            case.schema,
+            parse_fixture(&case.schema, case.payload)
+        );
+    }
+    for case in fixtures.invalid {
+        assert!(
+            parse_fixture(&case.schema, case.payload).is_err(),
+            "{}",
+            case.schema
+        );
+    }
+}
+
+fn parse_fixture(schema: &str, payload: Value) -> Result<(), String> {
+    match schema {
+        "registration" => parse_envelope::<agent_loom_runtime::protocol::Registration>(payload),
+        "heartbeat" => parse_envelope::<agent_loom_runtime::protocol::Heartbeat>(payload),
+        "command" => parse_envelope::<Command>(payload),
+        "ack" => parse_envelope::<agent_loom_runtime::protocol::CommandRef>(payload),
+        "progress" => parse_envelope::<agent_loom_runtime::protocol::Progress>(payload),
+        "result" => parse_envelope::<agent_loom_runtime::protocol::ResultEvent>(payload),
+        "error" => parse_envelope::<agent_loom_runtime::protocol::ErrorEvent>(payload),
+        other => Err(format!("unknown fixture schema: {other}")),
+    }
+}
+
+fn parse_envelope<T: serde::de::DeserializeOwned>(payload: Value) -> Result<(), String> {
+    let envelope: Envelope<T> =
+        serde_json::from_value(payload).map_err(|error| error.to_string())?;
+    envelope
+        .validate_version()
+        .map_err(|error| error.to_string())
 }
 #[test]
 fn state_deduplicates_commands_and_preserves_events() {
@@ -52,6 +110,59 @@ fn state_persists_identity_and_diagnostic_metadata() {
     assert_eq!(
         state.status().unwrap().last_error.as_deref(),
         Some("offline")
+    );
+}
+
+#[test]
+fn state_prunes_old_event_and_error_evidence_but_preserves_identity_and_dedupe() {
+    let dir = tempdir().unwrap();
+    let state = State::open(&dir.path().join("state.sqlite3")).unwrap();
+    let runtime_id = Uuid::new_v4();
+    let command_id = Uuid::new_v4();
+    state.save_identity(&runtime_id, "runtime-secret").unwrap();
+    assert!(
+        state
+            .record_command(command_id, &json!({"kind":"already-seen"}))
+            .unwrap()
+    );
+    state
+        .queue_event("old", &json!({"detail":"discard me"}))
+        .unwrap();
+    let old_event = state.pending_events().unwrap().pop().unwrap();
+    state
+        .failed_delivery(old_event.id, "old delivery error")
+        .unwrap();
+    state.delivered(old_event.id).unwrap();
+    state
+        .queue_event("fresh", &json!({"detail":"keep me"}))
+        .unwrap();
+
+    let now = Utc::now();
+    {
+        let connection = rusqlite::Connection::open(dir.path().join("state.sqlite3")).unwrap();
+        let old_created_at =
+            (now - Duration::days(MAX_DETAILED_EVIDENCE_RETENTION_DAYS) - Duration::seconds(1))
+                .to_rfc3339();
+        connection
+            .execute(
+                "UPDATE event_history SET delivered_at=?1 WHERE id=?2",
+                rusqlite::params![old_created_at, old_event.id],
+            )
+            .unwrap();
+    }
+
+    assert_eq!(state.prune_detailed_evidence(now).unwrap(), 1);
+    let pending = state.pending_events().unwrap();
+    assert_eq!(pending.len(), 1);
+    assert_eq!(pending[0].kind, "fresh");
+    assert_eq!(
+        state.identity().unwrap().unwrap().runtime_id,
+        runtime_id.to_string()
+    );
+    assert!(
+        !state
+            .record_command(command_id, &json!({"kind":"duplicate"}))
+            .unwrap()
     );
 }
 

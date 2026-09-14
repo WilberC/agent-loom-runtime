@@ -1,0 +1,19 @@
+{
+  "fixture_version": 1,
+  "protocol_version": "v1",
+  "description": "Deterministic v1 envelopes shared by control-plane and runtime test suites.",
+  "valid": [
+    {"name": "registration", "schema": "registration", "payload": {"protocol_version": "v1", "message_id": "00000000-0000-4000-8000-000000000001", "sent_at": "2026-01-01T00:00:00Z", "runtime_name": "hermes", "capabilities": ["process.run"]}},
+    {"name": "heartbeat", "schema": "heartbeat", "payload": {"protocol_version": "v1", "message_id": "00000000-0000-4000-8000-000000000002", "sent_at": "2026-01-01T00:00:01Z", "capabilities": ["process.run"]}},
+    {"name": "command", "schema": "command", "payload": {"protocol_version": "v1", "message_id": "00000000-0000-4000-8000-000000000003", "sent_at": "2026-01-01T00:00:02Z", "command_id": "00000000-0000-4000-8000-000000000004", "instruction": {"application": "example", "version": 1, "configuration": {}}, "lease_token": "00000000-0000-4000-8000-000000000005", "lease_expires_at": "2026-01-01T00:01:02Z"}},
+    {"name": "ack", "schema": "ack", "payload": {"protocol_version": "v1", "message_id": "00000000-0000-4000-8000-000000000006", "sent_at": "2026-01-01T00:00:03Z", "command_id": "00000000-0000-4000-8000-000000000004"}},
+    {"name": "progress", "schema": "progress", "payload": {"protocol_version": "v1", "message_id": "00000000-0000-4000-8000-000000000007", "sent_at": "2026-01-01T00:00:04Z", "command_id": "00000000-0000-4000-8000-000000000004", "progress": {"percent": 50, "message": "working"}}},
+    {"name": "result", "schema": "result", "payload": {"protocol_version": "v1", "message_id": "00000000-0000-4000-8000-000000000008", "sent_at": "2026-01-01T00:00:05Z", "command_id": "00000000-0000-4000-8000-000000000004", "result": {"status": "ok"}}},
+    {"name": "error", "schema": "error", "payload": {"protocol_version": "v1", "message_id": "00000000-0000-4000-8000-000000000009", "sent_at": "2026-01-01T00:00:06Z", "command_id": "00000000-0000-4000-8000-000000000004", "error": {"code": "execution_failed", "retryable": false}}}
+  ],
+  "invalid": [
+    {"name": "wrong-protocol-version", "schema": "heartbeat", "payload": {"protocol_version": "v2", "message_id": "00000000-0000-4000-8000-000000000010", "sent_at": "2026-01-01T00:00:07Z", "capabilities": []}},
+    {"name": "unknown-envelope-field", "schema": "heartbeat", "payload": {"protocol_version": "v1", "message_id": "00000000-0000-4000-8000-000000000011", "sent_at": "2026-01-01T00:00:08Z", "capabilities": [], "unexpected": true}},
+    {"name": "missing-envelope-field", "schema": "ack", "payload": {"protocol_version": "v1", "sent_at": "2026-01-01T00:00:09Z", "command_id": "00000000-0000-4000-8000-000000000004"}}
+  ]
+}
