@@ -21,6 +21,7 @@ The runtime can process work continuously and safely through reconnects, reports
 - `V03-01`: failure injection covers worker crash, network loss, duplicate delivery, provider timeout, and late result.
 - `V03-02`: soak test proves bounded disk/memory growth and stable heartbeats.
 - `V03-03`: telemetry review confirms a single run can be traced from control-plane command to local side effect.
+- `V03-04`: disposable Docker integration verifies durable event delivery across worker failure, duplicate execution requests, and a stopped-and-restarted runtime; the stack uses ephemeral containers and no host installation.
 
 ## Parallelization
 

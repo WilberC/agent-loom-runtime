@@ -1,3 +1,6 @@
+use command_group::{AsyncCommandGroup, AsyncGroupChild};
+#[cfg(unix)]
+use command_group::{Signal, UnixChildExt};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -5,12 +8,14 @@ use std::{path::PathBuf, sync::LazyLock, time::Duration};
 use thiserror::Error;
 use tokio::{
     io::{AsyncRead, AsyncReadExt},
-    process::{Child, Command},
+    process::Command,
     time,
 };
+use tokio_util::sync::CancellationToken;
 
 pub const CAPABILITY: &str = "hermes.run";
 const MAX_PROMPT_BYTES: usize = 128 * 1024;
+const TERMINATION_GRACE_PERIOD: Duration = Duration::from_secs(2);
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -56,6 +61,8 @@ pub enum HermesError {
     Start(#[source] std::io::Error),
     #[error("failed to capture Hermes output: {0}")]
     Io(#[source] std::io::Error),
+    #[error("Hermes execution was cancelled")]
+    Cancelled,
 }
 
 #[derive(Debug, Clone)]
@@ -90,34 +97,52 @@ impl HermesRunner {
     }
 
     pub async fn run(&self, instruction: Value) -> Result<RunResult, HermesError> {
+        self.run_with_cancellation(instruction, CancellationToken::new())
+            .await
+    }
+
+    pub async fn run_with_cancellation(
+        &self,
+        instruction: Value,
+        cancellation: CancellationToken,
+    ) -> Result<RunResult, HermesError> {
         let instruction = RunInstruction::try_from(instruction)?;
-        let mut child = Command::new(&self.binary)
+        let mut command = Command::new(&self.binary);
+        command
             .arg("run")
             .arg("--prompt")
             .arg(instruction.prompt)
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
-            .kill_on_drop(true)
-            .spawn()
-            .map_err(HermesError::Start)?;
+            .kill_on_drop(true);
+        let mut child = command.group_spawn().map_err(HermesError::Start)?;
         let stdout = child
+            .inner()
             .stdout
             .take()
             .ok_or_else(|| HermesError::Io(std::io::Error::other("missing stdout pipe")))?;
         let stderr = child
+            .inner()
             .stderr
             .take()
             .ok_or_else(|| HermesError::Io(std::io::Error::other("missing stderr pipe")))?;
         let stdout_task = tokio::spawn(read_bounded(stdout, self.output_limit));
         let stderr_task = tokio::spawn(read_bounded(stderr, self.output_limit));
-        let status = if let Ok(result) = time::timeout(self.timeout, child.wait()).await {
-            result.map_err(HermesError::Io)?
-        } else {
-            terminate(&mut child).await;
-            stdout_task.abort();
-            stderr_task.abort();
-            return Err(HermesError::Timeout(self.timeout));
+        let status = tokio::select! {
+            result = child.wait() => result.map_err(HermesError::Io)?,
+            () = time::sleep(self.timeout) => {
+                terminate(&mut child).await;
+                stdout_task.abort();
+                stderr_task.abort();
+                return Err(HermesError::Timeout(self.timeout));
+            }
+            () = cancellation.cancelled() => {
+                terminate(&mut child).await;
+                stdout_task.abort();
+                stderr_task.abort();
+                return Err(HermesError::Cancelled);
+            }
         };
         let stdout = stdout_task
             .await
@@ -172,9 +197,18 @@ async fn read_bounded<R: AsyncRead + Unpin>(
     })
 }
 
-async fn terminate(child: &mut Child) {
-    let _ = child.kill().await;
-    let _ = child.wait().await;
+async fn terminate(child: &mut AsyncGroupChild) {
+    #[cfg(unix)]
+    let _ = child.signal(Signal::SIGTERM);
+    #[cfg(not(unix))]
+    let _ = child.start_kill();
+
+    if time::timeout(TERMINATION_GRACE_PERIOD, child.wait())
+        .await
+        .is_err()
+    {
+        let _ = child.kill().await;
+    }
 }
 
 static BEARER: std::sync::LazyLock<Regex> =

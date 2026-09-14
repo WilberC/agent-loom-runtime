@@ -3,7 +3,8 @@ use crate::{
     config::Config,
     hermes::{HermesError, HermesRunner},
     protocol::{
-        CommandRef, Envelope, ErrorBody, ErrorEvent, Heartbeat, Progress, Registration, ResultEvent,
+        Command, CommandRef, Envelope, ErrorBody, ErrorEvent, Heartbeat, Progress, Registration,
+        ResultEvent,
     },
     state::State,
 };
@@ -11,6 +12,7 @@ use anyhow::{Context, Result};
 use serde_json::json;
 use std::sync::Arc;
 use tokio::time::{MissedTickBehavior, interval};
+use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
 pub const CAPABILITIES: &[&str] = &[crate::hermes::CAPABILITY];
@@ -63,48 +65,85 @@ pub async fn run(config: Config, state: Arc<State>) -> Result<()> {
         config.hermes_timeout,
         config.hermes_output_limit,
     );
+    let shutdown = CancellationToken::new();
+    let signal_shutdown = shutdown.clone();
+    tokio::spawn(async move {
+        if tokio::signal::ctrl_c().await.is_ok() {
+            signal_shutdown.cancel();
+        }
+    });
     loop {
-        tokio::select! { _=polling.tick()=> { if let Err(error)=cycle(&client,&state,&runner).await { warn!(%error,"runtime cycle failed; will reconnect"); state.set_meta("last_error",&error.to_string())?; } }, _=heartbeats.tick()=> { let heartbeat=Envelope::new(Heartbeat{capabilities:CAPABILITIES.iter().map(ToString::to_string).collect()}); if let Err(error)=client.heartbeat(&heartbeat).await {warn!(%error,"heartbeat failed");state.set_meta("last_error",&error.to_string())?;} }, _=tokio::signal::ctrl_c()=> {info!("shutdown signal received");return Ok(());} }
+        tokio::select! {
+            _=polling.tick()=> {
+                if let Err(error)=cycle(&client,&state,&runner,&shutdown).await {
+                    if shutdown.is_cancelled() { info!("shutdown signal received"); return Ok(()); }
+                    warn!(%error,"runtime cycle failed; will reconnect"); state.set_meta("last_error",&error.to_string())?;
+                }
+            },
+            _=heartbeats.tick()=> { let heartbeat=Envelope::new(Heartbeat{capabilities:CAPABILITIES.iter().map(ToString::to_string).collect()}); if let Err(error)=client.heartbeat(&heartbeat).await {warn!(%error,"heartbeat failed");state.set_meta("last_error",&error.to_string())?;} },
+            ()=shutdown.cancelled()=> { info!("shutdown signal received"); return Ok(()); }
+        }
     }
 }
-async fn cycle(client: &ControlPlaneClient, state: &State, runner: &HermesRunner) -> Result<()> {
+async fn cycle(
+    client: &ControlPlaneClient,
+    state: &State,
+    runner: &HermesRunner,
+    shutdown: &CancellationToken,
+) -> Result<()> {
     state.prune_detailed_evidence(chrono::Utc::now())?;
     flush(client, state).await?;
     let commands = client.commands().await?;
     for command in commands.commands {
-        if !state.record_command(command.body.command_id, &command.body.instruction)? {
-            continue;
-        }
-        let ack = Envelope::new(CommandRef {
-            command_id: command.body.command_id,
-        });
-        state.queue_event("ack", &serde_json::to_value(ack)?)?;
-        let progress = Envelope::new(Progress {
-            command_id: command.body.command_id,
-            progress: json!({"status": "running"}),
-        });
-        state.queue_event("progress", &serde_json::to_value(progress)?)?;
-        match runner.run(command.body.instruction).await {
-            Ok(result) => {
-                let event = Envelope::new(ResultEvent {
-                    command_id: command.body.command_id,
-                    result: serde_json::to_value(result)?,
-                });
-                state.queue_event("result", &serde_json::to_value(event)?)?;
-            }
-            Err(error) => {
-                let event = Envelope::new(ErrorEvent {
-                    command_id: command.body.command_id,
-                    error: ErrorBody {
-                        code: error_code(&error),
-                        details: [("message".to_owned(), json!(error.to_string()))].into(),
-                    },
-                });
-                state.queue_event("error", &serde_json::to_value(event)?)?;
-            }
-        }
+        process_command(state, runner, &command, shutdown.child_token()).await?;
     }
     flush(client, state).await
+}
+
+/// Runs one accepted command and queues its durable lifecycle events in order.
+pub async fn process_command(
+    state: &State,
+    runner: &HermesRunner,
+    command: &Envelope<Command>,
+    cancellation: CancellationToken,
+) -> Result<bool> {
+    if !state.record_command(command.body.command_id, &command.body.instruction)? {
+        return Ok(false);
+    }
+
+    let ack = Envelope::new(CommandRef {
+        command_id: command.body.command_id,
+    });
+    state.queue_event("ack", &serde_json::to_value(ack)?)?;
+    let progress = Envelope::new(Progress {
+        command_id: command.body.command_id,
+        progress: json!({"percent": 0, "status": "running"}),
+    });
+    state.queue_event("progress", &serde_json::to_value(progress)?)?;
+
+    let outcome = runner
+        .run_with_cancellation(command.body.instruction.clone(), cancellation)
+        .await;
+    match outcome {
+        Ok(result) => {
+            let event = Envelope::new(ResultEvent {
+                command_id: command.body.command_id,
+                result: serde_json::to_value(result)?,
+            });
+            state.queue_event("result", &serde_json::to_value(event)?)?;
+        }
+        Err(error) => {
+            let event = Envelope::new(ErrorEvent {
+                command_id: command.body.command_id,
+                error: ErrorBody {
+                    code: error_code(&error),
+                    details: [("message".to_owned(), json!(error.to_string()))].into(),
+                },
+            });
+            state.queue_event("error", &serde_json::to_value(event)?)?;
+        }
+    }
+    Ok(true)
 }
 
 fn error_code(error: &HermesError) -> String {
@@ -115,6 +154,7 @@ fn error_code(error: &HermesError) -> String {
         HermesError::NonZero { .. } => "execution_failed",
         HermesError::Start(_) => "executor_unavailable",
         HermesError::Io(_) => "execution_io_error",
+        HermesError::Cancelled => "execution_cancelled",
     }
     .to_owned()
 }

@@ -106,7 +106,7 @@ impl State {
         let mut connection = self.connection.lock().expect("state mutex poisoned");
         let transaction = connection.transaction()?;
         transaction.execute(
-            "INSERT INTO event_history(id,kind,payload,created_at,delivered_at) SELECT id,kind,payload,created_at,?2 FROM outgoing_events WHERE id=?1",
+            "INSERT INTO event_history(kind,payload,created_at,delivered_at) SELECT kind,payload,created_at,?2 FROM outgoing_events WHERE id=?1",
             params![id, Utc::now().to_rfc3339()],
         )?;
         transaction.execute("DELETE FROM outgoing_events WHERE id=?1", params![id])?;

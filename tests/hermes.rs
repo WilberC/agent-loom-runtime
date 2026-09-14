@@ -2,6 +2,7 @@ use agent_loom_runtime::hermes::{HermesError, HermesRunner, RunInstruction, reda
 use serde_json::json;
 use std::{fs, os::unix::fs::PermissionsExt, path::Path, time::Duration};
 use tempfile::tempdir;
+use tokio_util::sync::CancellationToken;
 
 fn fake_hermes(dir: &Path, body: &str) -> std::path::PathBuf {
     let path = dir.join("fake-hermes.sh");
@@ -55,6 +56,91 @@ async fn runner_reports_non_zero_exit_and_timeout() {
         runner.run(instruction("timeout")).await,
         Err(HermesError::Timeout(_))
     ));
+}
+
+#[tokio::test]
+async fn cancellation_terminates_the_entire_process_group() {
+    if std::process::Command::new("kill")
+        .arg("-0")
+        .arg(std::process::id().to_string())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_err()
+    {
+        return;
+    }
+    let dir = tempdir().unwrap();
+    let child_pid_file = dir.path().join("child.pid");
+    let hanging = fake_hermes(
+        dir.path(),
+        &format!(
+            "sleep 30 & child=$!; printf '%s' \"$child\" > '{}'; wait",
+            child_pid_file.display()
+        ),
+    );
+    let runner = HermesRunner::new(hanging, Duration::from_secs(30), 1024);
+    let cancellation = CancellationToken::new();
+    let cancel = cancellation.clone();
+    let task = tokio::spawn(async move {
+        runner
+            .run_with_cancellation(instruction("cancel"), cancel)
+            .await
+    });
+
+    for _ in 0..50 {
+        if child_pid_file.exists() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert!(
+        child_pid_file.exists(),
+        "fake Hermes did not start its child"
+    );
+    cancellation.cancel();
+    assert!(matches!(task.await.unwrap(), Err(HermesError::Cancelled)));
+
+    assert_process_group_child_is_gone(&child_pid_file).await;
+}
+
+#[tokio::test]
+async fn timeout_terminates_the_entire_process_group() {
+    if std::process::Command::new("kill")
+        .arg("-0")
+        .arg(std::process::id().to_string())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_err()
+    {
+        return;
+    }
+    let dir = tempdir().unwrap();
+    let child_pid_file = dir.path().join("child.pid");
+    let hanging = fake_hermes(
+        dir.path(),
+        &format!(
+            "sleep 30 & child=$!; printf '%s' \"$child\" > '{}'; wait",
+            child_pid_file.display()
+        ),
+    );
+    let runner = HermesRunner::new(hanging, Duration::from_millis(30), 1024);
+    assert!(matches!(
+        runner.run(instruction("timeout")).await,
+        Err(HermesError::Timeout(_))
+    ));
+    assert_process_group_child_is_gone(&child_pid_file).await;
+}
+
+async fn assert_process_group_child_is_gone(child_pid_file: &Path) {
+    let child_pid = fs::read_to_string(child_pid_file).unwrap();
+    tokio::time::sleep(Duration::from_millis(25)).await;
+    let still_running = std::process::Command::new("kill")
+        .args(["-0", child_pid.trim()])
+        .stderr(std::process::Stdio::null())
+        .status()
+        .unwrap()
+        .success();
+    assert!(!still_running, "process-group child survived termination");
 }
 
 #[test]

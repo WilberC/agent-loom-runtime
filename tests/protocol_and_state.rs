@@ -97,6 +97,29 @@ fn state_deduplicates_commands_and_preserves_events() {
 }
 
 #[test]
+fn state_allows_reusing_outgoing_event_ids_after_delivery() {
+    let dir = tempdir().unwrap();
+    let state = State::open(&dir.path().join("state.sqlite3")).unwrap();
+
+    state.queue_event("first", &json!({"sequence": 1})).unwrap();
+    let first = state.pending_events().unwrap().pop().unwrap();
+    state.delivered(first.id).unwrap();
+
+    state
+        .queue_event("second", &json!({"sequence": 2}))
+        .unwrap();
+    let second = state.pending_events().unwrap().pop().unwrap();
+    assert_eq!(second.id, first.id);
+    state.delivered(second.id).unwrap();
+
+    let connection = rusqlite::Connection::open(dir.path().join("state.sqlite3")).unwrap();
+    let history_count: i64 = connection
+        .query_row("SELECT count(*) FROM event_history", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(history_count, 2);
+}
+
+#[test]
 fn state_persists_identity_and_diagnostic_metadata() {
     let dir = tempdir().unwrap();
     let state = State::open(&dir.path().join("state.sqlite3")).unwrap();
