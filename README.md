@@ -20,6 +20,12 @@ The control-plane URL must not contain a path prefix; v1 paths are fixed below i
 
 Hermes execution is configured with AGENT_LOOM_HERMES_BINARY, a timeout, and a maximum per-stream output size. Remote instructions can provide only a prompt; they cannot select an executable, working directory, environment, or output path. The runner invokes the configured binary as hermes run --prompt <prompt>.
 
+The runtime also advertises `repo.sync` for repository automation applications. Its
+initial safe operation is pull-only: repository URLs must use HTTPS, worktrees are
+relative to `AGENT_LOOM_REPO_SYNC_ROOT` (default `repos`), and credentials are
+provided ephemerally by the control plane. The credential is passed to Git through
+environment-backed HTTP configuration and is never stored in the local command payload.
+
 ## Protocol v1 behavior
 
 - Enrolls at `POST /api/v1/runtimes/register`, then uses `Authorization: Runtime <uuid>.<secret>`.

@@ -2,6 +2,7 @@ use anyhow::{Context, Result};
 use chrono::{DateTime, Duration, Utc};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use std::{path::Path, sync::Mutex};
 use uuid::Uuid;
 
@@ -63,6 +64,9 @@ impl State {
         Ok(())
     }
     pub fn record_command(&self, command_id: Uuid, payload: &Value) -> Result<bool> {
+        let mut digest = Sha256::new();
+        digest.update(payload.to_string());
+        let payload_digest = format!("sha256:{:x}", digest.finalize());
         let n = self
             .connection
             .lock()
@@ -71,7 +75,7 @@ impl State {
                 "INSERT OR IGNORE INTO commands(command_id,payload,received_at) VALUES(?1,?2,?3)",
                 params![
                     command_id.to_string(),
-                    payload.to_string(),
+                    payload_digest,
                     Utc::now().to_rfc3339()
                 ],
             )?;

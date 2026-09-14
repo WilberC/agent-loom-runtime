@@ -6,16 +6,18 @@ use crate::{
         Command, CommandRef, Envelope, ErrorBody, ErrorEvent, Heartbeat, Progress, Registration,
         ResultEvent,
     },
+    repo_sync,
     state::State,
 };
 use anyhow::{Context, Result};
+use serde_json::Value;
 use serde_json::json;
-use std::sync::Arc;
+use std::{path::PathBuf, sync::Arc};
 use tokio::time::{MissedTickBehavior, interval};
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
-pub const CAPABILITIES: &[&str] = &[crate::hermes::CAPABILITY];
+pub const CAPABILITIES: &[&str] = &[crate::hermes::CAPABILITY, crate::repo_sync::CAPABILITY];
 pub async fn run(config: Config, state: Arc<State>) -> Result<()> {
     let identity = state.identity()?;
     let client = ControlPlaneClient::new(
@@ -121,9 +123,35 @@ pub async fn process_command(
     });
     state.queue_event("progress", &serde_json::to_value(progress)?)?;
 
-    let outcome = runner
-        .run_with_cancellation(command.body.instruction.clone(), cancellation)
-        .await;
+    let outcome = if command.body.instruction.get("kind").and_then(Value::as_str)
+        == Some(repo_sync::CAPABILITY)
+    {
+        let root = std::env::var_os("AGENT_LOOM_REPO_SYNC_ROOT")
+            .map_or_else(|| PathBuf::from("repos"), PathBuf::from);
+        match repo_sync::parse(command.body.instruction.clone()) {
+            Ok(instruction) => repo_sync::run(instruction, &root)
+                .await
+                .map(|stdout| crate::hermes::RunResult {
+                    stdout,
+                    stderr: String::new(),
+                    stdout_truncated: false,
+                    stderr_truncated: false,
+                    exit_code: 0,
+                })
+                .map_err(|error| HermesError::NonZero {
+                    status: "repo.sync".into(),
+                    stderr: error.to_string(),
+                }),
+            Err(error) => Err(HermesError::NonZero {
+                status: "repo.sync".into(),
+                stderr: error.to_string(),
+            }),
+        }
+    } else {
+        runner
+            .run_with_cancellation(command.body.instruction.clone(), cancellation)
+            .await
+    };
     match outcome {
         Ok(result) => {
             let event = Envelope::new(ResultEvent {

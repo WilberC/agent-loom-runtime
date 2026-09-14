@@ -97,6 +97,22 @@ fn state_deduplicates_commands_and_preserves_events() {
 }
 
 #[test]
+fn state_deduplication_does_not_persist_received_instruction_secrets() {
+    let dir = tempdir().unwrap();
+    let state = State::open(&dir.path().join("state.sqlite3")).unwrap();
+    let command_id = Uuid::new_v4();
+    let instruction = json!({"kind": "repo.sync", "token": "do-not-persist"});
+
+    assert!(state.record_command(command_id, &instruction).unwrap());
+    let connection = rusqlite::Connection::open(dir.path().join("state.sqlite3")).unwrap();
+    let payload: String = connection
+        .query_row("SELECT payload FROM commands", [], |row| row.get(0))
+        .unwrap();
+    assert!(!payload.contains("do-not-persist"));
+    assert!(payload.starts_with("sha256:"));
+}
+
+#[test]
 fn state_allows_reusing_outgoing_event_ids_after_delivery() {
     let dir = tempdir().unwrap();
     let state = State::open(&dir.path().join("state.sqlite3")).unwrap();

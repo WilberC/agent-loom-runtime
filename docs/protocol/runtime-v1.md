@@ -31,8 +31,30 @@ The Rust test suite consumes the deterministic fixture copied to [`tests/fixture
 
 ## Hermes runner instruction
 
-The runtime currently advertises the `hermes.run` capability. A command for that capability has exactly this instruction shape:
+The runtime currently advertises the `hermes.run` and `repo.sync` capabilities. A command for `hermes.run` has exactly this instruction shape:
 
     {"kind":"hermes.run","prompt":"Produce the requested structured response"}
 
 The runtime rejects unknown fields, unsupported kinds, empty prompts, and prompts larger than 128 KiB. It executes the configured local binary as hermes run --prompt <prompt>; the command cannot choose an executable, working directory, environment, or output path. Each accepted command queues ack, progress with {"percent":0,"status":"running"}, and then exactly one result or error event. Output is bounded and common bearer, token, secret, password, and API-key formats are redacted before being included in results or errors.
+
+### Repository synchronization instruction
+
+`repo.sync` is initially pull-only and has this shape:
+
+```json
+{
+  "kind": "repo.sync",
+  "repository_url": "https://github.com/example/repository.git",
+  "operation": "pull",
+  "reference": "main",
+  "worktree": "example-repository",
+  "credential": {"username": "x-access-token", "token": "injected-ephemerally"}
+}
+```
+
+The control plane stores only a credential reference and expands it when leasing
+the command. The runtime stores a digest of the received instruction for
+deduplication, not the instruction itself. Worktrees are relative to the runtime
+sync root; credentials are supplied to Git through environment-backed config and
+never embedded in the repository URL. Push support is reserved for a later
+explicitly enabled operation.
