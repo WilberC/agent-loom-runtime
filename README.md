@@ -12,6 +12,25 @@ mise exec rust@1.85 -- cargo run -- doctor
 
 The TUI is optional and reads local SQLite state; the daemon remains suitable for systemd.
 
+## LXC updates
+
+The runtime is deployed independently from the control plane on its dedicated
+LXC. Build, test, upload, restart, and verify an update with one command from
+this repository:
+
+```sh
+AGENT_LOOM_RUNTIME_TARGET=agent-loom@runtime-lxc \
+  ./scripts/deploy-runtime.sh
+```
+
+The script uses the locked Rust toolchain through mise when available, keeps
+the previous binary as `/usr/local/bin/agent-loom.previous`, and rolls back if
+the systemd service does not become active. Configure passwordless sudo on the
+LXC for installing `/usr/local/bin/agent-loom` and restarting
+`agent-loom-runtime.service`. The runtime state and credentials are never
+replaced by an update; keep `/var/lib/agent-loom` and `/etc/agent-loom`
+intact.
+
 ## Configuration
 
 Copy `.env.example` into a service-specific environment file. The runtime persists its runtime ID, issued secret, command deduplication records, and unsent lifecycle events in `AGENT_LOOM_STATE_PATH`. State is local only and must be permission-restricted by the service account. Enroll once with `AGENT_LOOM_ENROLLMENT_TOKEN`; afterward use `AGENT_LOOM_RUNTIME_SECRET_FILE` (recommended) or `AGENT_LOOM_RUNTIME_SECRET`.
