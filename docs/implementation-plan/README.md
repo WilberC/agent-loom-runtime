@@ -5,7 +5,7 @@
 - Status: Hermes runner core implemented; automation adapters pending
 - Scope: new runtime replacing `old-implementation/hermes-runtime`
 - Target: `agent-loom-runtime`
-- Last updated: 2026-09-14
+- Last updated: 2026-09-15
 
 ## Source inventory
 
@@ -54,7 +54,7 @@ Use Rust for the runtime daemon and the separate Ratatui TUI. Build a single lig
 | Phase | Outcome | Depends on | Status |
 | --- | --- | --- | --- |
 | [Phase 01](phases/phase-01-runtime-foundation.md) | Secure runtime shell and protocol client | None | complete |
-| [Phase 02](phases/phase-02-hermes-adapter-and-execution.md) | Hermes adapter and safe execution engine | Phase 01 | in progress |
+| [Phase 02](phases/phase-02-hermes-adapter-and-execution.md) | Hermes adapter and safe execution engine | Phase 01 | complete for generic runner foundation; automation adapters pending |
 | [Phase 03](phases/phase-03-local-durability-and-telemetry.md) | Restart/offline resilience and observability | Phase 01, Phase 02 | complete for local foundation |
 | [Phase 04](phases/phase-04-parity-and-lxc-rollout.md) | Legacy parity and LXC cutover | Phase 03 | planned |
 
