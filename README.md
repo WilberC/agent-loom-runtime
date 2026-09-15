@@ -17,7 +17,8 @@ The TUI is optional and reads local SQLite state; the daemon remains suitable fo
 The runtime is deployed independently from the control plane on its dedicated
 LXC. Configure the LXC once, then publish and install only immutable release
 binary updates. The LXC does not need a clone of this repository or a Rust
-toolchain.
+toolchain. The runtime service intentionally runs as `sysadmin` so it can
+execute the existing user-local Hermes installation without changing Hermes.
 
 ### One-time LXC setup
 
@@ -33,7 +34,9 @@ AGENT_LOOM_RUNTIME_SERVICE=agent-loom-runtime.service
 The token is required only for a private GitHub repository and must be kept
 out of the runtime environment file. The LXC also needs `curl`, `sha256sum`,
 and permission to install `/usr/local/bin/agent-loom` and restart the systemd
-service. Keep `/etc/agent-loom/runtime.env`,
+service. Install the service unit from `systemd/agent-loom-runtime.service`; it
+runs as `sysadmin` and deliberately does not hide `/home` so Hermes remains
+available. Keep `/etc/agent-loom/runtime.env`,
 `/etc/agent-loom/runtime-secret`, and `/var/lib/agent-loom` intact.
 
 ### Publish and install an update

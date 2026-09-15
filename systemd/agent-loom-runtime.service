@@ -5,8 +5,8 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=agent-loom
-Group=agent-loom
+User=sysadmin
+Group=sysadmin
 EnvironmentFile=/etc/agent-loom/runtime.env
 LoadCredential=runtime-secret:/etc/agent-loom/runtime-secret
 Environment=AGENT_LOOM_RUNTIME_SECRET_FILE=%d/runtime-secret
@@ -17,7 +17,8 @@ StateDirectory=agent-loom
 NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=strict
-ProtectHome=yes
+# Hermes is intentionally kept in sysadmin's existing home installation.
+ProtectHome=no
 ReadWritePaths=/var/lib/agent-loom
 
 [Install]
