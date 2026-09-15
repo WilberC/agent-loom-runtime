@@ -1,6 +1,6 @@
 # Runtime protocol v1
 
-All runtime JSON is a **v1 envelope**: `protocol_version` (`"v1"`), UUID `message_id`, and RFC 3339 `sent_at`. Unknown fields are rejected in v1 envelopes. The canonical machine-readable schemas are `src/control_plane/protocol/schemas.py`; the runtime must consume a copied/generated equivalent and use its fixture tests.
+All runtime JSON is a **v1 envelope**: `protocol_version` (`"v1"`), UUID `message_id`, and RFC 3339 `sent_at`. Unknown fields are rejected in v1 envelopes. The canonical machine-readable schemas are maintained in the Agent Loom repository at `protocol/schemas.py`; the runtime must consume a copied/generated equivalent and use its fixture tests.
 
 ## Authentication and enrollment
 
@@ -27,7 +27,7 @@ A Django user/session is the separate browser/admin boundary. No runtime credent
 ## Compatibility
 
 Future versions must add fields/endpoints or negotiate capabilities; do not repurpose v1 fields. WebSocket transport may later carry the same envelopes, while v1 uses outbound runtime polling only.
-The Rust test suite consumes the deterministic fixture copied to [`tests/fixtures/runtime-v1.json`](../../tests/fixtures/runtime-v1.json). Keep this copy synchronized with the control-plane fixture at `agent-loom-control-plane/docs/protocol/fixtures/runtime-v1.json`; no network or running service is required for contract validation.
+The Rust test suite consumes the deterministic fixture copied to [`tests/fixtures/runtime-v1.json`](../../tests/fixtures/runtime-v1.json). Keep this copy synchronized with the control-plane fixture at `agent-loom/docs/protocol/fixtures/runtime-v1.json`; no network or running service is required for contract validation.
 
 ## Hermes runner instruction
 

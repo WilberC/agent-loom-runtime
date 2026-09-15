@@ -47,7 +47,7 @@ impl ControlPlaneClient {
         let registered: RegistrationResponse = response.json().await?;
         if registered.protocol_version != "v1" {
             bail!("control plane returned incompatible protocol version")
-        };
+        }
         Ok(registered)
     }
     pub async fn heartbeat<T: Serialize>(&self, body: &T) -> Result<()> {
@@ -67,7 +67,7 @@ impl ControlPlaneClient {
         let body: CommandCollection = response.json().await?;
         if body.protocol_version != "v1" {
             bail!("command collection has incompatible version")
-        };
+        }
         for command in &body.commands {
             command.validate_version()?;
         }
@@ -84,7 +84,7 @@ impl ControlPlaneClient {
             .await?;
         if response.status() == StatusCode::CONFLICT {
             return Ok(false);
-        };
+        }
         response.error_for_status()?;
         Ok(true)
     }
