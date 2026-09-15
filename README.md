@@ -21,7 +21,7 @@ toolchain.
 
 ### One-time LXC setup
 
-Copy `scripts/update-from-release.sh` to `/usr/local/sbin/agent-loom-update`
+Copy `scripts/update-from-release.sh` to `/usr/local/bin/agent-loom-update`
 and make it executable. Create `/etc/agent-loom/update.env` with mode `0600`:
 
 ```sh
@@ -50,7 +50,7 @@ publishes it with `SHA256SUMS`. After the release is available, install it on
 the LXC:
 
 ```sh
-sudo /usr/local/sbin/agent-loom-update runtime-v0.2.0
+sudo agent-loom-update runtime-v0.2.0
 ```
 
 The updater downloads the release directly from GitHub, verifies its checksum,
