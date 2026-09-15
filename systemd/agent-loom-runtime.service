@@ -8,8 +8,6 @@ Type=simple
 User=sysadmin
 Group=sysadmin
 EnvironmentFile=/etc/agent-loom/runtime.env
-LoadCredential=runtime-secret:/etc/agent-loom/runtime-secret
-Environment=AGENT_LOOM_RUNTIME_SECRET_FILE=%d/runtime-secret
 ExecStart=/usr/local/bin/agent-loom daemon
 Restart=on-failure
 RestartSec=5

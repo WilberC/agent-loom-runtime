@@ -36,8 +36,7 @@ out of the runtime environment file. The LXC also needs `curl`, `sha256sum`,
 and permission to install `/usr/local/bin/agent-loom` and restart the systemd
 service. Install the service unit from `systemd/agent-loom-runtime.service`; it
 runs as `sysadmin` and deliberately does not hide `/home` so Hermes remains
-available. Keep `/etc/agent-loom/runtime.env`,
-`/etc/agent-loom/runtime-secret`, and `/var/lib/agent-loom` intact.
+available. Keep `/etc/agent-loom/runtime.env` and `/var/lib/agent-loom` intact.
 
 ### Publish and install an update
 
