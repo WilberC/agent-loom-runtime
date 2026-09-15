@@ -16,7 +16,8 @@ RestartSec=5
 StateDirectory=agent-loom
 NoNewPrivileges=yes
 PrivateTmp=yes
-ProtectSystem=strict
+# Keep sysadmin's home writable because Hermes manages its own local state.
+ProtectSystem=full
 # Hermes is intentionally kept in sysadmin's existing home installation.
 ProtectHome=no
 ReadWritePaths=/var/lib/agent-loom
