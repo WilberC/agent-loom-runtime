@@ -39,7 +39,7 @@ The runtime rejects unknown fields, unsupported kinds, empty prompts, and prompt
 
 ### Repository synchronization instruction
 
-`repo.sync` is initially pull-only and has this shape:
+`repo.sync` supports pull, push, and pull-push operations and has this shape:
 
 ```json
 {
@@ -56,5 +56,6 @@ The control plane stores only a credential reference and expands it when leasing
 the command. The runtime stores a digest of the received instruction for
 deduplication, not the instruction itself. Worktrees are relative to the runtime
 sync root; credentials are supplied to Git through environment-backed config and
-never embedded in the repository URL. Push support is reserved for a later
-explicitly enabled operation.
+never embedded in the repository URL. Push operations require an existing
+worktree and update `origin:<reference>` from the worktree's current `HEAD`; they
+never create commits or push uncommitted changes.

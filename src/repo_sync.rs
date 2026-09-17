@@ -82,28 +82,22 @@ pub fn parse(value: Value) -> Result<SyncInstruction, SyncError> {
             "credential token must not be empty".into(),
         ));
     }
-    if matches!(instruction.operation, Operation::Push | Operation::PullPush) {
-        return Err(SyncError::Invalid(
-            "push operations are not enabled yet".into(),
-        ));
-    }
     Ok(instruction)
 }
 
 pub async fn run(instruction: SyncInstruction, root: &Path) -> Result<String, SyncError> {
     let worktree = root.join(&instruction.worktree);
-    let mut command = if worktree.join(".git").is_dir() {
-        let mut command = Command::new("git");
-        command.args([
-            "-C",
-            worktree.to_str().unwrap_or_default(),
-            "pull",
-            "--ff-only",
-            "origin",
-            &instruction.reference,
-        ]);
-        command
-    } else {
+    if matches!(instruction.operation, Operation::Push | Operation::PullPush)
+        && !worktree.join(".git").is_dir()
+    {
+        return Err(SyncError::Invalid(
+            "push operations require an existing worktree".into(),
+        ));
+    }
+
+    if !worktree.join(".git").is_dir()
+        && matches!(instruction.operation, Operation::Pull | Operation::PullPush)
+    {
         tokio::fs::create_dir_all(root)
             .await
             .map_err(SyncError::Io)?;
@@ -115,14 +109,47 @@ pub async fn run(instruction: SyncInstruction, root: &Path) -> Result<String, Sy
             &instruction.repository_url,
         ]);
         command.arg(&worktree);
-        command
-    };
+        return execute(command, instruction.credential.as_ref()).await;
+    }
+
+    if matches!(instruction.operation, Operation::Pull | Operation::PullPush) {
+        let mut command = Command::new("git");
+        command.args([
+            "-C",
+            worktree.to_str().unwrap_or_default(),
+            "pull",
+            "--ff-only",
+            "origin",
+            &instruction.reference,
+        ]);
+        execute(command, instruction.credential.as_ref()).await?;
+    }
+
+    if matches!(instruction.operation, Operation::Push | Operation::PullPush) {
+        let mut command = Command::new("git");
+        command.args([
+            "-C",
+            worktree.to_str().unwrap_or_default(),
+            "push",
+            "origin",
+        ]);
+        command.arg(format!("HEAD:{}", instruction.reference));
+        return execute(command, instruction.credential.as_ref()).await;
+    }
+
+    Ok(String::new())
+}
+
+async fn execute(
+    mut command: Command,
+    credential: Option<&Credential>,
+) -> Result<String, SyncError> {
     command
         .env("GIT_TERMINAL_PROMPT", "0")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    if let Some(credential) = instruction.credential {
+    if let Some(credential) = credential {
         let auth = base64::engine::general_purpose::STANDARD
             .encode(format!("{}:{}", credential.username, credential.token));
         command
